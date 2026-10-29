@@ -548,9 +548,13 @@ extension VideoPlayer {
         private var canAutoDismiss: Bool {
             guard presentation != .hidden,
                   !isScrubbing,
-                  !isPresentingSupplement,
                   interactions.isEmpty,
                   manager?.playbackRequestStatus != .paused else { return false }
+
+            #if os(iOS)
+            guard !isPresentingSupplement else { return false }
+
+            #endif
 
             #if os(tvOS)
             // Menus take focus out of the player, including nested system menus.
@@ -566,8 +570,15 @@ extension VideoPlayer {
 
         private var autoDismissInterval: TimeInterval {
             #if os(tvOS)
-            // Short interval for progress only
-            presentation == .progress ? 2 : 10
+            // Short interval for progress only. Fork: info panel tabs (Info, Guide, Session)
+            // also close themselves after 10 s without remote input.
+            if presentation == .progress {
+                2
+            } else if isPresentingSupplement {
+                10
+            } else {
+                10
+            }
             #else
             5
             #endif
