@@ -24,11 +24,17 @@ struct FocusedPosterCinematicBackgroundView: View {
                 item: focusedPoster,
                 debounce: 0.5
             ) { item in
-                ImageView(item?.imageSources(for: .landscape, environment: .init(viewContext: .isBackdrop)) ?? [])
-                    .failure {
-                        EmptyView()
-                    }
-                    .aspectRatio(contentMode: .fill)
+                // Blurred, so a reduced resolution is indistinguishable
+                ImageView(
+                    item?.imageSources(
+                        for: .landscape,
+                        environment: .init(maxWidth: CGFloat.imagePixels(1280), viewContext: .isBackdrop)
+                    ) ?? []
+                )
+                .failure {
+                    EmptyView()
+                }
+                .aspectRatio(contentMode: .fill)
             }
             .blurred()
             .ignoresSafeArea()

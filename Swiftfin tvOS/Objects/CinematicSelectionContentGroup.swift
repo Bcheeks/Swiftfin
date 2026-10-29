@@ -20,10 +20,12 @@ struct CinematicSelectionContentGroup: ContentGroup {
     }
 
     init(
+        suggestedLibrary: SuggestedItemsLibrary,
         resumeLibrary: ResumeItemsLibrary,
         recentlyAddedLibrary: RecentlyAddedLibrary
     ) {
         self.viewModel = CinematicSelectionContentGroupViewModel(
+            suggestedLibrary: suggestedLibrary,
             resumeLibrary: resumeLibrary,
             recentlyAddedLibrary: recentlyAddedLibrary
         )
@@ -72,8 +74,7 @@ struct CinematicSelectionContentGroup: ContentGroup {
         }
 
         var body: some View {
-            let items = viewModel.hasResumeItems ? viewModel.resumeViewModel.elements.elements : viewModel.recentlyAddedViewModel.elements
-                .elements
+            let items = viewModel.heroItems
 
             CinematicItemSelector(
                 items: items
@@ -107,8 +108,9 @@ struct CinematicRecentlyAddedContentGroup: ContentGroup {
     let id = "cinematic-recently-added"
     let viewModel: CinematicSelectionContentGroupViewModel
 
+    /// Shown unless the hero is already showing recently added items
     var _shouldBeResolved: Bool {
-        viewModel.hasResumeItems && viewModel.recentlyAddedViewModel.elements.isNotEmpty
+        (viewModel.hasSuggestions || viewModel.hasResumeItems) && viewModel.recentlyAddedViewModel.elements.isNotEmpty
     }
 
     func body(with viewModel: CinematicSelectionContentGroupViewModel) -> some View {
@@ -129,6 +131,8 @@ final class CinematicSelectionContentGroupViewModel: ViewModel, WithRefresh {
             Task { await refresh() }
         }
 
+        // Suggestions are intentionally not refreshed in the background
+        // so the hero doesn't reshuffle while browsing.
         func refresh() async {
             async let resume: Void = viewModel.resumeViewModel.background.refresh()
             async let recentlyAdded: Void = viewModel.recentlyAddedViewModel.background.refresh()
@@ -138,6 +142,7 @@ final class CinematicSelectionContentGroupViewModel: ViewModel, WithRefresh {
 
     let recentlyAddedGroup: PosterGroup<RecentlyAddedLibrary>
     let resumeViewModel: PagingLibraryViewModel<ResumeItemsLibrary>
+    let suggestedViewModel: PagingLibraryViewModel<SuggestedItemsLibrary>
 
     var recentlyAddedViewModel: PagingLibraryViewModel<RecentlyAddedLibrary> {
         recentlyAddedGroup.viewModel
@@ -152,14 +157,31 @@ final class CinematicSelectionContentGroupViewModel: ViewModel, WithRefresh {
         resumeViewModel.elements.isNotEmpty
     }
 
+    var hasSuggestions: Bool {
+        suggestedViewModel.elements.isNotEmpty
+    }
+
     var hasContent: Bool {
-        hasResumeItems || recentlyAddedViewModel.elements.isNotEmpty
+        hasSuggestions || hasResumeItems || recentlyAddedViewModel.elements.isNotEmpty
+    }
+
+    /// Suggestions first, falling back to resume, then recently added
+    var heroItems: [ItemEntry] {
+        if hasSuggestions {
+            suggestedViewModel.elements.elements
+        } else if hasResumeItems {
+            resumeViewModel.elements.elements
+        } else {
+            recentlyAddedViewModel.elements.elements
+        }
     }
 
     init(
+        suggestedLibrary: SuggestedItemsLibrary,
         resumeLibrary: ResumeItemsLibrary,
         recentlyAddedLibrary: RecentlyAddedLibrary
     ) {
+        self.suggestedViewModel = PagingLibraryViewModel(library: suggestedLibrary, pageSize: 10)
         self.resumeViewModel = PagingLibraryViewModel(library: resumeLibrary, pageSize: 20)
         self.recentlyAddedGroup = PosterGroup(library: recentlyAddedLibrary)
 
@@ -167,6 +189,7 @@ final class CinematicSelectionContentGroupViewModel: ViewModel, WithRefresh {
 
         resumeViewModel.objectWillChange
             .merge(with: recentlyAddedViewModel.objectWillChange)
+            .merge(with: suggestedViewModel.objectWillChange)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -180,10 +203,11 @@ final class CinematicSelectionContentGroupViewModel: ViewModel, WithRefresh {
     }
 
     func refresh() async {
+        async let suggested: Void = suggestedViewModel.refresh()
         async let resume: Void = resumeViewModel.refresh()
         async let recentlyAdded: Void = recentlyAddedViewModel.refresh()
 
-        _ = await (resume, recentlyAdded)
+        _ = await (suggested, resume, recentlyAdded)
     }
 }
 

@@ -11,6 +11,7 @@ import Defaults
 import FactoryKit
 import Foundation
 import JellyfinAPI
+import os
 
 // TODO: proper error catching
 // TODO: be a UserSessionService?
@@ -243,6 +244,9 @@ final class MediaPlayerManager: ViewModel {
 
     private var initialMediaPlayerItemProvider: MediaPlayerItemProvider?
 
+    /// Live TV channel up/down, last channel recall, and now/next banner.
+    let liveTVChannels: LiveTVChannelController
+
     // MARK: init
 
 //    static let empty: MediaPlayerManager = .init()
@@ -261,9 +265,11 @@ final class MediaPlayerManager: ViewModel {
         self.queue = queue.map { AnyMediaPlayerQueue($0) }
         self.state = .loadingItem
         self.initialMediaPlayerItemProvider = provider
+        self.liveTVChannels = LiveTVChannelController()
         super.init()
 
         self.queue?.manager = self
+        self.liveTVChannels.manager = self
     }
 
     init(
@@ -273,9 +279,11 @@ final class MediaPlayerManager: ViewModel {
         self.selectedItem = playbackItem.baseItem
         self.queue = queue.map { AnyMediaPlayerQueue($0) }
         self.state = .playback
+        self.liveTVChannels = LiveTVChannelController()
         super.init()
 
         self.queue?.manager = self
+        self.liveTVChannels.manager = self
         self.playbackItem = playbackItem
     }
 
@@ -507,6 +515,15 @@ final class MediaPlayerManager: ViewModel {
     ) async throws -> Int {
 
         guard requestedBitrate == .auto else { return requestedBitrate.rawValue }
+
+        // Reuse a recent result instead of testing on every play / channel change
+        if let cached = bitrateTestCache.withLock({ $0 }),
+           cached.testSize == testSize,
+           Date.now.timeIntervalSince(cached.date) < bitrateTestCacheLifetime
+        {
+            return cached.bitrate
+        }
+
         guard let userSession = Container.shared.currentUserSession() else {
             throw UserSessionError.missingCurrentSession
         }
@@ -517,12 +534,26 @@ final class MediaPlayerManager: ViewModel {
         let testSizeBits = Double(testSize.rawValue * 8)
         let testBitrate = testSizeBits / testDuration
 
-        return clamp(
+        let bitrate = clamp(
             Int(testBitrate),
             min: PlaybackBitrate.kbps420.rawValue,
             max: Int(Int32.max)
         )
+
+        bitrateTestCache.withLock {
+            $0 = (bitrate: bitrate, testSize: testSize, date: .now)
+        }
+
+        return bitrate
     }
+
+    private nonisolated static let bitrateTestCacheLifetime: TimeInterval = 10 * 60
+
+    private nonisolated static let bitrateTestCache = OSAllocatedUnfairLock<(
+        bitrate: Int,
+        testSize: PlaybackBitrateTestSize,
+        date: Date
+    )?>(initialState: nil)
 }
 
 // MARK: - Picture in Picture

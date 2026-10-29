@@ -22,6 +22,7 @@ struct EPGProgramCell: View {
     let action: () -> Void
 
     private let leadingOffset: CGFloat
+    private let width: CGFloat
     private let block: ProgramBlock
     private var presentation: ProgramCellPresentation {
         ProgramCellPresentation(block: block)
@@ -31,6 +32,7 @@ struct EPGProgramCell: View {
         scrollState: EPGScrollState,
         block: ProgramBlock,
         leadingOffset: CGFloat,
+        width: CGFloat,
         isCurrent: Bool,
         isFocused: Bool,
         accentColor: Color,
@@ -42,6 +44,7 @@ struct EPGProgramCell: View {
         self.accentColor = accentColor
         self.action = action
         self.leadingOffset = leadingOffset
+        self.width = width
         self.block = block
         self._stickyOffset = State(
             initialValue: max(0, scrollState.visibleLeadingOffset - leadingOffset)
@@ -66,6 +69,20 @@ struct EPGProgramCell: View {
         isFocused ? .black.opacity(0.6) : .secondary
     }
 
+    /// Narrow cells (short programs) use less padding so the title has room.
+    private var horizontalPadding: CGFloat {
+        width < 60 ? 4 : 8
+    }
+
+    /// Below this width, even a truncated title is unreadable, so show only the cell.
+    private var showsTitle: Bool {
+        width >= 28
+    }
+
+    private var showsTime: Bool {
+        width >= 70
+    }
+
     private var stickyOffsetPublisher: AnyPublisher<CGFloat, Never> {
         scrollState.visibleLeadingOffsetPublisher
             .map { max(0, $0 - leadingOffset) }
@@ -76,16 +93,21 @@ struct EPGProgramCell: View {
     var body: some View {
         Button(action: action) {
             StickyProgramContentLayout(
-                stickyOffset: stickyOffset
+                stickyOffset: stickyOffset,
+                horizontalPadding: horizontalPadding
             ) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(presentation.title)
-                        .font(.footnote.weight(isCurrent ? .semibold : .regular))
-                        .foregroundStyle(primaryColor)
+                    if showsTitle {
+                        Text(presentation.title)
+                            .font(.footnote.weight(isCurrent ? .semibold : .regular))
+                            .foregroundStyle(primaryColor)
+                    }
 
-                    Text(presentation.time)
-                        .font(.caption2)
-                        .foregroundStyle(secondaryColor)
+                    if showsTime {
+                        Text(presentation.time)
+                            .font(.caption2)
+                            .foregroundStyle(secondaryColor)
+                    }
                 }
                 .lineLimit(1)
             }
@@ -97,6 +119,11 @@ struct EPGProgramCell: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(EPGButtonStyle())
+        .accessibilityLabel(
+            [presentation.title, presentation.time]
+                .filter(\.isNotEmpty)
+                .joined(separator: ", ")
+        )
         .accessibilityValue(isCurrent ? L10n.onNow : "")
         .onReceive(stickyOffsetPublisher) { stickyOffset in
             self.stickyOffset = stickyOffset
@@ -133,6 +160,7 @@ private struct ProgramCellPresentation {
 private struct StickyProgramContentLayout: Layout {
 
     let stickyOffset: CGFloat
+    let horizontalPadding: CGFloat
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -151,7 +179,6 @@ private struct StickyProgramContentLayout: Layout {
         guard let content = subviews.first else { return }
 
         let contentSize = content.sizeThatFits(.unspecified)
-        let horizontalPadding: CGFloat = 8
         let maximumShift = max(0, bounds.width - contentSize.width - horizontalPadding * 2)
         let shift = clamp(
             stickyOffset,

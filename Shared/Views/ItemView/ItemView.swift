@@ -129,7 +129,8 @@ struct ItemView: View {
 
         ZStack {
             switch viewModel.state {
-            case .content:
+            // Present the header and loaded groups while remaining groups load
+            case .content, .refreshing where viewModel.groups.isNotEmpty:
                 content
             case .error:
                 viewModel.error.map(ErrorView.init)

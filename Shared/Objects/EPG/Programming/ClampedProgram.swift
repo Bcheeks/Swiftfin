@@ -15,8 +15,12 @@ struct ClampedProgram {
     let start: Date
     let end: Date
 
+    /// Programs shorter than this are fragments (filler, bumpers) that are
+    /// merged with adjacent fragments into a single grouped cell.
+    static let groupingThreshold: TimeInterval = 5 * 60
+
     var isShort: Bool {
-        end.timeIntervalSince(start) < 15 * 60
+        end.timeIntervalSince(start) < Self.groupingThreshold
     }
 
     init?(_ program: BaseItemDto, clampedTo span: ClosedRange<Date>) {

@@ -58,14 +58,17 @@ struct EPGContentView: View {
     private var selectedGroup: ProgramBlock?
 
     private let action: (BaseItemDto) -> Void
+    private let autoFocusesOnAppear: Bool
     private let selectedChannelID: String?
 
     init(
         viewModel: EPGViewModel,
         selectedChannelID: String? = nil,
+        autoFocusesOnAppear: Bool = true,
         action: @escaping (BaseItemDto) -> Void
     ) {
         self.action = action
+        self.autoFocusesOnAppear = autoFocusesOnAppear
         self.selectedChannelID = selectedChannelID
         self.viewModel = viewModel
     }
@@ -117,6 +120,7 @@ struct EPGContentView: View {
                     EPGCollectionView(
                         viewModel: viewModel,
                         proxy: proxy,
+                        selectedChannelID: selectedChannelID,
                         bottomInset: frame.safeAreaInsets.bottom,
                         onReachedBottom: {
                             viewModel.getNextPage()
@@ -126,7 +130,8 @@ struct EPGContentView: View {
                         },
                         onSelectGroup: {
                             selectedGroup = $0
-                        }
+                        },
+                        autoFocusesOnAppear: autoFocusesOnAppear
                     )
                 }
             }

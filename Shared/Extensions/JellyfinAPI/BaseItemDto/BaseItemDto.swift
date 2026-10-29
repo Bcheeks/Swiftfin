@@ -571,7 +571,11 @@ extension BaseItemDto {
     }
 
     /// Can this `BaseItemDto` be recorded
+    /// Fork: no DVR in the app, recordings are managed on the server.
+    private static let isRecordingEnabled = false
+
     var canBeRecorded: Bool {
+        guard Self.isRecordingEnabled else { return false }
         guard Container.shared.currentUserSession()?.user.data.policy?.enableLiveTvManagement == true else { return false }
 
         switch type {

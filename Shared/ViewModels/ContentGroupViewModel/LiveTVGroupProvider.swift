@@ -51,7 +51,7 @@ struct LiveTVGroupProvider: ContentGroupProvider {
         PillGroup(
             displayTitle: "",
             id: "live-tv-channels",
-            elements: [LiveTVPill.channels, .guide, .recordings, .schedule]
+            elements: [LiveTVPill.channels, .guide]
         ) { router, pill in
             switch pill {
             case .channels:
@@ -101,12 +101,5 @@ struct LiveTVGroupProvider: ContentGroupProvider {
                     posterSize: .small
                 )
             }
-
-        PosterGroup(
-            id: "recordings",
-            library: RecordingsLibrary(),
-            posterDisplayType: .landscape,
-            posterSize: .small
-        )
     }
 }

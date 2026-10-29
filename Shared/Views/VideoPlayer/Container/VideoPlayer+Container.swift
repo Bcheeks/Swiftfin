@@ -383,6 +383,8 @@ extension VideoPlayer {
         #if os(tvOS)
         let onPressEvent = OnPressEvent()
         private var lastTouchPokeTime: CFTimeInterval = 0
+        private var pendingTouchPoke: Task<Void, Never>?
+        private var lastLivePlayPauseTime: CFTimeInterval = 0
         private var pendingPlaybackFocusRequest: UUID?
         #endif
 
@@ -895,10 +897,28 @@ extension VideoPlayer {
             lastTouchPokeTime = now
 
             if manager.item.isLiveStream {
-                viewState.showControls()
+                guard viewState.presentation == .hidden else {
+                    viewState.showControls()
+                    return
+                }
+
+                // Wait briefly so an up/down click (channel change) can claim the touch first
+                pendingTouchPoke?.cancel()
+                pendingTouchPoke = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard !Task.isCancelled, let self else { return }
+
+                    self.pendingTouchPoke = nil
+                    self.viewState.showControls()
+                }
             } else {
                 viewState.showProgress()
             }
+        }
+
+        func cancelPendingTouchPoke() {
+            pendingTouchPoke?.cancel()
+            pendingTouchPoke = nil
         }
 
         private func forwardPressesBegan(
@@ -985,6 +1005,10 @@ extension VideoPlayer {
                 return
             }
 
+            if manager.item.isLiveStream, handleLivePlayPauseDoublePress() {
+                return
+            }
+
             if viewState.presentation == .hidden {
                 if manager.playbackRequestStatus == .paused {
                     manager.setPlaybackRequestStatus(status: .playing)
@@ -1000,6 +1024,32 @@ extension VideoPlayer {
             }
 
             viewState.refreshAutoDismiss()
+        }
+
+        /// Double pressing Play/Pause from the dismissed overlay recalls the last channel.
+        ///
+        /// - Returns: `true` if the press was consumed.
+        private func handleLivePlayPauseDoublePress() -> Bool {
+            let now = CACurrentMediaTime()
+
+            guard now - lastLivePlayPauseTime < 0.5 else {
+                // Only a press that starts from the dismissed overlay can begin a double press
+                lastLivePlayPauseTime = viewState.presentation == .hidden ? now : 0
+                return false
+            }
+
+            lastLivePlayPauseTime = 0
+
+            if manager.liveTVChannels.recallPreviousChannel() {
+                if manager.playbackRequestStatus == .paused {
+                    manager.setPlaybackRequestStatus(status: .playing)
+                }
+                viewState.hideControls()
+            } else {
+                viewState.refreshAutoDismiss()
+            }
+
+            return true
         }
 
         private func handleSelectEnded(_ press: UIPress, event: UIPressesEvent?) {

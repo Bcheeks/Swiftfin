@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import FactoryKit
 import JellyfinAPI
 import SwiftUI
 
@@ -13,6 +14,22 @@ import SwiftUI
 
 private let baseItemListLandscapeWidth: CGFloat = 110
 private let baseItemListPortraitWidth: CGFloat = 60
+
+extension BaseItemDto {
+
+    /// Live TV channels and currently airing programs play immediately
+    /// instead of opening their details.
+    var isTunable: Bool {
+        switch type {
+        case .liveTvChannel, .tvChannel:
+            true
+        case .program:
+            isAiring
+        default:
+            false
+        }
+    }
+}
 
 extension BaseItemDto: LibraryElement {
 
@@ -39,7 +56,13 @@ extension BaseItemDto: LibraryElement {
             )
 
         default:
-            router.route(to: .item(item: self), in: namespace)
+            if isTunable,
+               let provider = getPlaybackItemProvider(userSession: Container.shared.currentUserSession())
+            {
+                router.route(to: .videoPlayer(provider: provider))
+            } else {
+                router.route(to: .item(item: self), in: namespace)
+            }
         }
     }
 

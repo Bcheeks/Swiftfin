@@ -17,21 +17,36 @@ struct EPGCollectionView: UIViewRepresentable {
     var viewModel: EPGViewModel
 
     let proxy: EPGScrollProxy
+    /// The channel whose now-airing program receives initial focus on tvOS.
+    let selectedChannelID: String?
     let bottomInset: CGFloat
     let onReachedBottom: () -> Void
     let onSelect: (BaseItemDto) -> Void
     let onSelectGroup: (ProgramBlock) -> Void
+    /// Whether the grid moves focus into itself when it appears on tvOS.
+    /// Disabled where focus may still be in the tab sidebar.
+    var autoFocusesOnAppear: Bool = true
 
     private let layout = EPGLayout()
 
     func makeUIView(context: Context) -> UICollectionView {
-        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: context.coordinator.gridLayout)
+        let collectionView = EPGGridCollectionView(frame: .zero, collectionViewLayout: context.coordinator.gridLayout)
         collectionView.backgroundColor = .clear
         collectionView.showsVerticalScrollIndicator = false
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.selfSizingInvalidation = .disabled
         collectionView.delegate = context.coordinator
+
+        #if os(tvOS)
+        collectionView.remembersLastFocusedIndexPath = false
+        collectionView.onPlayPause = { [weak coordinator = context.coordinator] in
+            coordinator?.jumpToNow()
+        }
+        collectionView.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.scheduleInitialFocus()
+        }
+        #endif
 
         context.coordinator.representable = self
         context.coordinator.configure(collectionView)
@@ -117,6 +132,17 @@ extension EPGCollectionView {
         private let scrollState = EPGScrollState()
         private var wasLoadingNextPage = false
 
+        #if os(tvOS)
+        /// Horizontal content position (time) that vertical focus moves try to keep.
+        private var focusAnchor: CGFloat?
+        private var lastFocusedIndexPath: IndexPath?
+        private var pendingFocusIndexPath: IndexPath?
+        private var redirectFocusIndexPath: IndexPath?
+        private var hasReceivedFocus = false
+        private var didPerformInitialFocus = false
+        private var isInitialFocusScheduled = false
+        #endif
+
         func configure(_ collectionView: UICollectionView) {
             self.collectionView = collectionView
             lastPaginationVerticalOffset = collectionView.contentOffset.y
@@ -174,6 +200,11 @@ extension EPGCollectionView {
                    renderContentSignature.startDate != contentSignature.startDate
                 {
                     representable.proxy.reset()
+
+                    #if os(tvOS)
+                    focusAnchor = nil
+                    lastFocusedIndexPath = nil
+                    #endif
                 }
 
                 sections = makeSections(viewModel: viewModel, layout: layout)
@@ -202,8 +233,8 @@ extension EPGCollectionView {
                 renderState?.contentWidth != nextRenderState.contentWidth ||
                 renderState?.nowOffset != nextRenderState.nowOffset ||
                 renderState?.rowHeight != nextRenderState.rowHeight
-            let cellsDidChange = renderState?.now != nextRenderState.now ||
-                renderState?.programsRevision != nextRenderState.programsRevision
+            let programsDidChange = renderState?.programsRevision != nextRenderState.programsRevision
+            let previousNow = renderState?.now
 
             gridLayout.rowHeight = nextRenderState.rowHeight
             gridLayout.contentWidth = nextRenderState.contentWidth
@@ -224,8 +255,14 @@ extension EPGCollectionView {
 
             renderState = nextRenderState
 
-            if cellsDidChange {
+            if programsDidChange {
                 refreshVisibleCells()
+            } else if let previousNow, previousNow != nextRenderState.now {
+                // The now line is a layout decoration; only cells whose airing state flipped need new content.
+                let now = nextRenderState.now
+                refreshVisibleCells { block in
+                    block.isAiring(at: previousNow) != block.isAiring(at: now)
+                }
             }
 
             if wasLoadingNextPage, !viewModel.background.is(.gettingNextPage) {
@@ -235,6 +272,12 @@ extension EPGCollectionView {
 
             representable.proxy.registerContent(collectionView, centeringOn: gridLayout.nowOffset)
             representable.proxy.registerVertical(collectionView)
+
+            #if os(tvOS)
+            if nextRenderState.sections.contains(where: \.items.isNotEmpty) {
+                scheduleInitialFocus()
+            }
+            #endif
         }
 
         private func makeSections(
@@ -308,6 +351,7 @@ extension EPGCollectionView {
                     scrollState: scrollState,
                     block: block,
                     leadingOffset: renderItem.frame.minX,
+                    width: renderItem.frame.width,
                     isCurrent: block.isAiring(at: representable.viewModel.now),
                     isFocused: isFocused,
                     accentColor: accentColor,
@@ -337,13 +381,17 @@ extension EPGCollectionView {
             }
         }
 
-        private func refreshVisibleCells() {
+        private func refreshVisibleCells(
+            where shouldRefresh: (ProgramBlock) -> Bool = { _ in true }
+        ) {
             guard let collectionView, let dataSource else { return }
 
             UIView.performWithoutAnimation {
                 for cell in collectionView.visibleCells {
                     guard let indexPath = collectionView.indexPath(for: cell),
-                          let itemID = dataSource.itemIdentifier(for: indexPath)
+                          let itemID = dataSource.itemIdentifier(for: indexPath),
+                          let block = renderItems[itemID]?.block,
+                          shouldRefresh(block)
                     else { continue }
 
                     configure(
@@ -390,5 +438,294 @@ extension EPGCollectionView {
             didRequestNextPage = true
             representable.onReachedBottom()
         }
+
+        // MARK: - tvOS Focus
+
+        #if os(tvOS)
+        func indexPathForPreferredFocusedView(in collectionView: UICollectionView) -> IndexPath? {
+            if let pendingFocusIndexPath {
+                return pendingFocusIndexPath
+            }
+
+            // Until the grid has been focused once, entering it lands on the now-airing program.
+            return hasReceivedFocus ? nil : initialFocusIndexPath()
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            shouldUpdateFocusIn context: UICollectionViewFocusUpdateContext
+        ) -> Bool {
+            let heading = context.focusHeading
+
+            // Hold directional moves while a programmatic redirect is in flight.
+            if redirectFocusIndexPath != nil || pendingFocusIndexPath != nil {
+                return heading.isEmpty
+            }
+
+            guard !heading.isEmpty,
+                  let nextIndexPath = context.nextFocusedIndexPath
+            else { return true }
+
+            let anchor: CGFloat
+
+            if let previousIndexPath = context.previouslyFocusedIndexPath {
+                // Moving between rows: keep the time position instead of the geometric nearest cell.
+                guard heading.contains(.up) || heading.contains(.down),
+                      previousIndexPath.section != nextIndexPath.section,
+                      let focusAnchor
+                else { return true }
+
+                anchor = focusAnchor
+            } else {
+                // Entering the grid from the channel column or date bar.
+                guard let target = focusAnchor ?? renderState?.nowOffset else { return true }
+
+                anchor = target
+            }
+
+            guard let targetIndexPath = indexPath(inSection: nextIndexPath.section, at: anchor),
+                  targetIndexPath != nextIndexPath,
+                  collectionView.cellForItem(at: targetIndexPath) != nil
+            else { return true }
+
+            redirectFocusIndexPath = targetIndexPath
+
+            Task { @MainActor [weak self, weak collectionView] in
+                guard let self else { return }
+
+                let target = self.redirectFocusIndexPath
+                self.redirectFocusIndexPath = nil
+
+                guard let collectionView, let target else { return }
+
+                self.requestFocus(target, in: collectionView)
+            }
+
+            return false
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            didUpdateFocusIn context: UICollectionViewFocusUpdateContext,
+            with coordinator: UIFocusAnimationCoordinator
+        ) {
+            guard let nextIndexPath = context.nextFocusedIndexPath,
+                  let frame = renderFrame(at: nextIndexPath)
+            else { return }
+
+            hasReceivedFocus = true
+            lastFocusedIndexPath = nextIndexPath
+
+            if let focusAnchor, frame.minX <= focusAnchor, focusAnchor < frame.maxX {
+                return
+            }
+
+            focusAnchor = defaultFocusAnchor(for: frame)
+        }
+
+        /// Scrolls back to the current time and focuses the now-airing program in the focused row.
+        func jumpToNow() {
+            guard let collectionView,
+                  let representable,
+                  let renderState
+            else { return }
+
+            let target = renderState.nowOffset ?? 0
+            let section = lastFocusedIndexPath?.section ?? initialFocusIndexPath()?.section
+
+            representable.proxy.scrollTo(centering: target, animated: false)
+            focusAnchor = target
+
+            guard let section,
+                  let focusIndexPath = indexPath(inSection: section, at: target)
+            else { return }
+
+            collectionView.layoutIfNeeded()
+            requestFocus(focusIndexPath, in: collectionView)
+        }
+
+        /// Moves focus from the default SwiftUI target (the date bar or channel column)
+        /// to the now-airing program. Retries briefly because SwiftUI may settle its own
+        /// initial focus after the grid has content.
+        func scheduleInitialFocus() {
+            guard !didPerformInitialFocus, !isInitialFocusScheduled else { return }
+
+            isInitialFocusScheduled = true
+
+            Task { @MainActor [weak self] in
+                var didAttempt = false
+
+                for delay in [100, 400, 800] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+
+                    guard let self else { return }
+
+                    if self.performInitialFocusIfNeeded() {
+                        didAttempt = true
+                    }
+                }
+
+                guard let self else { return }
+
+                self.isInitialFocusScheduled = false
+
+                if didAttempt {
+                    self.didPerformInitialFocus = true
+                }
+            }
+        }
+
+        /// Returns whether there was a target to focus.
+        private func performInitialFocusIfNeeded() -> Bool {
+            guard !didPerformInitialFocus,
+                  representable?.autoFocusesOnAppear != false,
+                  let collectionView,
+                  collectionView.window != nil,
+                  let target = initialFocusIndexPath(),
+                  let frame = renderFrame(at: target)
+            else { return false }
+            guard !isFocused(within: collectionView) else { return true }
+
+            focusAnchor = defaultFocusAnchor(for: frame)
+            scrollToRowIfNeeded(target.section, in: collectionView)
+            collectionView.layoutIfNeeded()
+            requestFocus(target, in: collectionView)
+
+            return true
+        }
+
+        private func requestFocus(_ indexPath: IndexPath, in collectionView: UICollectionView) {
+            pendingFocusIndexPath = indexPath
+            defer { pendingFocusIndexPath = nil }
+
+            if let cell = collectionView.cellForItem(at: indexPath),
+               let focusSystem = UIFocusSystem.focusSystem(for: collectionView)
+            {
+                focusSystem.requestFocusUpdate(to: cell)
+                focusSystem.updateFocusIfNeeded()
+            } else {
+                collectionView.setNeedsFocusUpdate()
+                collectionView.updateFocusIfNeeded()
+            }
+        }
+
+        private func isFocused(within collectionView: UICollectionView) -> Bool {
+            (UIFocusSystem.focusSystem(for: collectionView)?.focusedItem as? UIView)?.isDescendant(of: collectionView) == true
+        }
+
+        private func initialFocusIndexPath() -> IndexPath? {
+            guard let sections = renderState?.sections else { return nil }
+
+            let selectedSection = representable?.selectedChannelID.flatMap { channelID in
+                sections.firstIndex { $0.id == channelID && $0.items.isNotEmpty }
+            }
+
+            guard let section = selectedSection ?? sections.firstIndex(where: { $0.items.isNotEmpty }) else { return nil }
+
+            return indexPath(inSection: section, at: renderState?.nowOffset ?? 0)
+        }
+
+        private func renderFrame(at indexPath: IndexPath) -> CGRect? {
+            renderState?.sections[safe: indexPath.section]?.items[safe: indexPath.item]?.frame
+        }
+
+        /// Airing programs anchor at the current time, others at their start.
+        private func defaultFocusAnchor(for frame: CGRect) -> CGFloat {
+            if let nowOffset = renderState?.nowOffset, frame.minX <= nowOffset, nowOffset < frame.maxX {
+                return nowOffset
+            }
+
+            return frame.minX
+        }
+
+        /// The item in `section` that contains `x`, or the nearest one when `x` falls in a gap.
+        private func indexPath(inSection section: Int, at x: CGFloat) -> IndexPath? {
+            guard let items = renderState?.sections[safe: section]?.items, items.isNotEmpty else { return nil }
+
+            if let item = items.firstIndex(where: { $0.frame.minX <= x && x < $0.frame.maxX }) {
+                return IndexPath(item: item, section: section)
+            }
+
+            let nearest = items.indices.min { lhs, rhs in
+                distance(from: items[lhs].frame, to: x) < distance(from: items[rhs].frame, to: x)
+            }
+
+            return nearest.map { IndexPath(item: $0, section: section) }
+        }
+
+        private func distance(from frame: CGRect, to x: CGFloat) -> CGFloat {
+            x < frame.minX ? frame.minX - x : max(0, x - frame.maxX)
+        }
+
+        private func scrollToRowIfNeeded(_ section: Int, in collectionView: UICollectionView) {
+            let rowHeight = gridLayout.rowHeight
+
+            guard rowHeight > 0 else { return }
+
+            let rowMinY = CGFloat(section) * rowHeight
+            let visibleMinY = collectionView.contentOffset.y
+            let visibleMaxY = visibleMinY + collectionView.bounds.height - collectionView.contentInset.bottom
+
+            guard rowMinY < visibleMinY || rowMinY + rowHeight > visibleMaxY else { return }
+
+            let maximumOffset = max(
+                0,
+                collectionView.contentSize.height + collectionView.contentInset.bottom - collectionView.bounds.height
+            )
+
+            collectionView.setContentOffset(
+                CGPoint(
+                    x: collectionView.contentOffset.x,
+                    y: clamp(rowMinY - rowHeight, min: 0, max: maximumOffset)
+                ),
+                animated: false
+            )
+        }
+        #endif
     }
+}
+
+/// Handles tvOS remote presses and window changes for the guide grid.
+private final class EPGGridCollectionView: UICollectionView {
+
+    #if os(tvOS)
+    var onPlayPause: (() -> Void)?
+    var onDidMoveToWindow: (() -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+
+        if window != nil {
+            onDidMoveToWindow?()
+        }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.filter { $0.type != .playPause }
+
+        if remaining.isNotEmpty {
+            super.pressesBegan(remaining, with: event)
+        }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.filter { $0.type != .playPause }
+
+        if remaining.count != presses.count {
+            onPlayPause?()
+        }
+
+        if remaining.isNotEmpty {
+            super.pressesEnded(remaining, with: event)
+        }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.filter { $0.type != .playPause }
+
+        if remaining.isNotEmpty {
+            super.pressesCancelled(remaining, with: event)
+        }
+    }
+    #endif
 }

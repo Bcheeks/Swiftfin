@@ -417,7 +417,7 @@ extension Defaults.Keys {
         }
 
         static var videoPlayerEPG: Key<Bool> {
-            UserKey("experimentalVideoPlayerEPG", default: false)
+            UserKey("experimentalVideoPlayerEPG", default: true)
         }
     }
 

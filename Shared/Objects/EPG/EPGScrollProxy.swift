@@ -96,12 +96,12 @@ final class EPGScrollProxy: ObservableObject {
         invalidateObservations(in: verticalObservations)
     }
 
-    func scrollTo(centering target: CGFloat) {
+    func scrollTo(centering target: CGFloat, animated: Bool = true) {
         guard let contentScrollView, let offset = offset(centering: target) else { return }
 
         contentScrollView.setContentOffset(
             CGPoint(x: offset, y: contentScrollView.contentOffset.y),
-            animated: true
+            animated: animated
         )
     }
 

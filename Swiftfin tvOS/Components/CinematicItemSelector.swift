@@ -81,11 +81,16 @@ struct CinematicItemSelector<Item: Poster, TopContent: View>: View {
                 item: resolvedSelectedPoster,
                 debounce: 0.5
             ) { item in
-                ImageView(item?.imageSources(for: .landscape, environment: .init(viewContext: .isBackdrop)) ?? [])
-                    .failure {
-                        EmptyView()
-                    }
-                    .aspectRatio(contentMode: .fill)
+                ImageView(
+                    item?.imageSources(
+                        for: .landscape,
+                        environment: .init(maxWidth: CGFloat.imagePixels(1920), viewContext: .isBackdrop)
+                    ) ?? []
+                )
+                .failure {
+                    EmptyView()
+                }
+                .aspectRatio(contentMode: .fill)
             }
             .overlay {
                 Color.black

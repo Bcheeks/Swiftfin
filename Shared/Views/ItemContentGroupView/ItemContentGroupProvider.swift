@@ -75,12 +75,18 @@ final class ItemContentGroupProvider: ViewModel, ContentGroupProvider {
         let userSession = try requireUserSession()
         let entry = try await userSession.getFullItem(item)
         let fullItem = entry.snapshot
-        let newMediaPlayerItemProvider = try await resolveMediaPlayerItemProvider(
+
+        // Independent of each other, only require the full item
+        async let mediaPlayerItemProviderRequest = resolveMediaPlayerItemProvider(
             for: fullItem,
             userSession: userSession
         )
-        let newLocalTrailers = try? await localTrailers(for: fullItem)
-        let newRandomBackdropItem = try? await randomBackdropItem(for: fullItem)
+        async let localTrailersRequest = localTrailers(for: fullItem)
+        async let randomBackdropItemRequest = randomBackdropItem(for: fullItem)
+
+        let newMediaPlayerItemProvider = try await mediaPlayerItemProviderRequest
+        let newLocalTrailers = try? await localTrailersRequest
+        let newRandomBackdropItem = try? await randomBackdropItemRequest
 
         guard $item.value != nil, let fullItem = entry.value else { throw ItemStore.StoreError.itemUnavailable }
 
@@ -225,6 +231,7 @@ final class ItemContentGroupProvider: ViewModel, ContentGroupProvider {
 
         if item.type == .episode {
             PosterGroup(
+                id: "episode-season",
                 library: StaticMediaLibrary(
                     title: L10n.season,
                     id: "seasons",
@@ -354,20 +361,10 @@ final class ItemContentGroupProvider: ViewModel, ContentGroupProvider {
     ) async throws -> MediaPlayerItemProvider? {
         let playbackItem: BaseItemDto? = switch item.type {
         case .series:
-            if let nextUp = try await nextUpItem(for: item) {
-                nextUp
-            } else if let resumeItem = try await resumeItem(for: item) {
-                resumeItem
-            } else {
-                try await firstAvailableItem(for: item)
-            }
+            try await seriesPlaybackItem(for: item)
 
         case .season:
-            if let resumeItem = try await resumeItem(for: item) {
-                resumeItem
-            } else {
-                try await firstAvailableItem(for: item)
-            }
+            try await seasonPlaybackItem(for: item)
 
         default:
             item.isPlayable ? item : nil
@@ -384,6 +381,35 @@ final class ItemContentGroupProvider: ViewModel, ContentGroupProvider {
         }
 
         return playbackItem.getPlaybackItemProvider(userSession: userSession)
+    }
+
+    /// Requests candidates concurrently but keeps the priority: next up, resume, first available.
+    /// Unawaited candidates are cancelled when a higher priority candidate is found.
+    private func seriesPlaybackItem(for item: BaseItemDto) async throws -> BaseItemDto? {
+        async let nextUpRequest = nextUpItem(for: item)
+        async let resumeRequest = resumeItem(for: item)
+        async let firstAvailableRequest = firstAvailableItem(for: item)
+
+        if let nextUp = try await nextUpRequest {
+            return nextUp
+        }
+
+        if let resume = try await resumeRequest {
+            return resume
+        }
+
+        return try await firstAvailableRequest
+    }
+
+    private func seasonPlaybackItem(for item: BaseItemDto) async throws -> BaseItemDto? {
+        async let resumeRequest = resumeItem(for: item)
+        async let firstAvailableRequest = firstAvailableItem(for: item)
+
+        if let resume = try await resumeRequest {
+            return resume
+        }
+
+        return try await firstAvailableRequest
     }
 
     private func nextUpItem(for item: BaseItemDto) async throws -> BaseItemDto? {

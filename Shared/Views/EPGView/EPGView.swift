@@ -17,6 +17,12 @@ struct EPGView: View {
     @StateObject
     private var viewModel = EPGViewModel()
 
+    private let autoFocusesOnAppear: Bool
+
+    init(autoFocusesOnAppear: Bool = true) {
+        self.autoFocusesOnAppear = autoFocusesOnAppear
+    }
+
     @ViewBuilder
     private var contentView: some View {
         VStack(spacing: 0) {
@@ -27,11 +33,32 @@ struct EPGView: View {
             #endif
 
             EPGContentView(
-                viewModel: viewModel
-            ) {
-                router.route(to: .item(item: $0))
-            }
+                viewModel: viewModel,
+                autoFocusesOnAppear: autoFocusesOnAppear,
+                action: select
+            )
         }
+    }
+
+    /// Channels and currently airing programs tune immediately.
+    /// Programs that haven't started yet open their details.
+    private func select(_ item: BaseItemDto) {
+        guard item.isTunable else {
+            router.route(to: .item(item: item))
+            return
+        }
+
+        let channel = item.channelID
+            .flatMap { channelID in
+                viewModel.channels.first { $0.itemID == channelID }?.value
+            } ?? item
+
+        guard let provider = channel.getPlaybackItemProvider(userSession: viewModel.userSession) else {
+            router.route(to: .item(item: item))
+            return
+        }
+
+        router.route(to: .videoPlayer(provider: provider))
     }
 
     var body: some View {

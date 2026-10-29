@@ -96,6 +96,20 @@ extension ImagePipeline.Swiftfin {
     static let other: ImagePipeline = ImagePipeline(configuration: .withURLCache)
 }
 
+extension ImagePrefetcher {
+
+    enum Swiftfin {}
+}
+
+extension ImagePrefetcher.Swiftfin {
+
+    /// Prefetches images into the same pipeline and caches used by poster images.
+    static let posters = ImagePrefetcher(
+        pipeline: ImagePipeline.Swiftfin.posters,
+        maxConcurrentRequestCount: 4
+    )
+}
+
 final class SwiftfinImagePipelineDelegate: ImagePipeline.Delegate {
 
     func cacheKey(for request: ImageRequest, pipeline: ImagePipeline) -> String? {

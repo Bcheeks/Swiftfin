@@ -121,7 +121,12 @@ extension TabItem {
             title: L10n.liveTV,
             systemImage: "play.tv"
         ) {
-            NavigationRoute.liveTV.destination
+            // Opens straight into the guide.
+            // Focus stays in the sidebar until the user moves into the grid.
+            EPGView(autoFocusesOnAppear: !UIDevice.isTV)
+                .if(UIDevice.isTV) { view in
+                    view.toolbar(.hidden, for: .navigationBar)
+                }
         }
     }
 

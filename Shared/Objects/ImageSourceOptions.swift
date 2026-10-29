@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 
 protocol WithImageSourceOptions {
     var maxWidth: CGFloat? { get set }
@@ -19,4 +20,13 @@ struct ImageSourceOptions: WithImageSourceOptions {
     var maxWidth: CGFloat?
     var maxHeight: CGFloat?
     var quality: Int? = 90
+}
+
+extension CGFloat {
+
+    /// `maxWidth` and `maxHeight` are in points and are scaled by the display scale
+    /// when building image requests. Use this to request a fixed pixel size instead.
+    static func imagePixels(_ pixels: CGFloat) -> CGFloat {
+        pixels / Swift.max(UITraitCollection.current.displayScale, 1)
+    }
 }

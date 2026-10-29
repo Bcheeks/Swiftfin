@@ -41,6 +41,15 @@ extension ItemView {
             }
         }
 
+        private var backgroundImageMaxWidth: CGFloat {
+            #if os(tvOS)
+            // 1920px is enough for the backdrop behind the content, even on 4K displays
+            CGFloat.imagePixels(1920)
+            #else
+            1920
+            #endif
+        }
+
         @ViewBuilder
         private var background: some View {
             AlternateLayoutView {
@@ -48,7 +57,7 @@ extension ItemView {
             } content: {
                 ImageView(backgroundImageItem.imageSources(
                     for: .landscape,
-                    environment: .init(maxWidth: 1920)
+                    environment: .init(maxWidth: backgroundImageMaxWidth)
                 ))
                 .failure {
                     Color.black

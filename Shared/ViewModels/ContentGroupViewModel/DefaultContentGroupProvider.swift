@@ -13,6 +13,29 @@ import JellyfinAPI
 
 struct DefaultContentGroupProvider: ContentGroupProvider {
 
+    private enum LiveTVShortcut: Displayable, SystemImageable {
+        case guide
+        case channels
+
+        var displayTitle: String {
+            switch self {
+            case .guide:
+                L10n.guide
+            case .channels:
+                L10n.channels
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .guide:
+                "tablecells"
+            case .channels:
+                "play.square.stack"
+            }
+        }
+    }
+
     @Injected(\.currentUserSession)
     var userSession: UserSession?
 
@@ -39,29 +62,35 @@ struct DefaultContentGroupProvider: ContentGroupProvider {
                 using: \.collectionType
             )
 
-        return _makeGroups(userViews: resolvedUserViews)
+        let hasLiveTV = userSession.user.data.policy?.enableLiveTvAccess == true
+
+        return _makeGroups(userViews: resolvedUserViews, hasLiveTV: hasLiveTV)
     }
 
     @ContentGroupBuilder
-    private func _makeGroups(userViews: [BaseItemDto]) -> [any ContentGroup] {
+    private func _makeGroups(userViews: [BaseItemDto], hasLiveTV: Bool) -> [any ContentGroup] {
 
         #if os(tvOS)
+        // Hero: random unwatched suggestions, with Continue Watching as its own row
         let cinematicSelectionContentGroup = CinematicSelectionContentGroup(
+            suggestedLibrary: SuggestedItemsLibrary(),
             resumeLibrary: ResumeItemsLibrary(mediaTypes: [.video]),
             recentlyAddedLibrary: RecentlyAddedLibrary()
         )
 
         cinematicSelectionContentGroup
-        #else
+        #endif
+
         PosterGroup(
+            id: "home-resume",
             library: ResumeItemsLibrary(mediaTypes: [.video]),
             posterDisplayType: .landscape,
             posterSize: .medium,
             _viewContext: .isInResume
         )
-        #endif
 
         PosterGroup(
+            id: "home-next-up",
             library: NextUpLibrary()
         )
 
@@ -72,6 +101,7 @@ struct DefaultContentGroupProvider: ContentGroupProvider {
             )
             #else
             PosterGroup(
+                id: "home-recently-added",
                 library: ItemLibrary(
                     parent: BaseItemDto(name: L10n.recentlyAdded.localizedCapitalized),
                     filters: .init(
@@ -86,6 +116,7 @@ struct DefaultContentGroupProvider: ContentGroupProvider {
 
         if Defaults[.Customization.Home.showRecentlyPlayed] {
             PosterGroup(
+                id: "home-recently-played",
                 library: ItemLibrary(
                     parent: BaseItemDto(name: L10n.recentlyPlayed.localizedCapitalized),
                     filters: .init(
@@ -98,6 +129,26 @@ struct DefaultContentGroupProvider: ContentGroupProvider {
             )
         }
 
+        PillGroup(
+            displayTitle: L10n.liveTV,
+            id: "home-live-tv",
+            elements: hasLiveTV ? [LiveTVShortcut.guide, .channels] : []
+        ) { router, shortcut in
+            switch shortcut {
+            case .guide:
+                router.route(to: .liveGuide)
+            case .channels:
+                router.route(
+                    to: .library(
+                        library: ItemLibrary(
+                            parent: BaseItemDto(name: L10n.channels),
+                            filters: .init(itemTypes: [.liveTvChannel])
+                        )
+                    )
+                )
+            }
+        }
+
         PosterGroup(
             id: "programs-recommended",
             library: RecommendedProgramsLibrary(),
@@ -106,10 +157,10 @@ struct DefaultContentGroupProvider: ContentGroupProvider {
         )
 
         userViews
-            .map(LatestInLibrary.init)
-            .map {
+            .map { userView in
                 PosterGroup(
-                    library: $0,
+                    id: "home-latest-\(userView.id ?? UUID().uuidString)",
+                    library: LatestInLibrary(library: userView),
                     posterDisplayType: .landscape
                 )
             }

@@ -18,6 +18,21 @@ extension VideoPlayer.PlaybackControls {
             return
         }
 
+        // Channel up/down while watching live TV with the overlay dismissed
+        if press.type == .upArrow || press.type == .downArrow,
+           manager.item.isLiveStream,
+           viewState.presentation == .hidden,
+           !viewState.isPresentingOverlayActions,
+           !viewState.isScrubbing
+        {
+            if press.phase == .began {
+                viewState.containerView?.cancelPendingTouchPoke()
+                manager.liveTVChannels.switchChannel(by: press.type == .upArrow ? 1 : -1)
+            }
+            press.resolve(.handled)
+            return
+        }
+
         if viewState.presentation == .hidden, viewState.isPresentingOverlayActions {
             if isSeekPress {
                 press.resolve(.fallback)

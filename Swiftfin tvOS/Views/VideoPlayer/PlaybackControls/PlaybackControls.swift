@@ -57,6 +57,9 @@ extension VideoPlayer {
                     .enabled(viewState.isPresentingProgress)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .overlay {
+                LiveTVChannelBanner(controller: manager.liveTVChannels)
+            }
             .edgePadding(.horizontal)
             .focusSection()
             .coordinatedFocus(ViewState.Focus.controls)

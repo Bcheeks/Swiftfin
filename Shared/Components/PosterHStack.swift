@@ -7,6 +7,7 @@
 //
 
 import CollectionHStack
+import Nuke
 import SwiftUI
 
 struct PosterHStack<
@@ -86,6 +87,50 @@ struct PosterHStack<
         .insets(horizontal: EdgeInsets.edgePadding)
         .itemSpacing(EdgeInsets.itemSpacing)
         .scrollBehavior(.continuousLeadingEdge)
+        .background {
+            PosterImagePrefetchView(
+                elements: elements,
+                displayType: displayType,
+                size: size
+            )
+        }
         .withViewContext(.isThumb)
+    }
+}
+
+/// Prefetches the images of posters not yet visible in a row, requesting the
+/// same URLs that `PosterImage` would so the pipeline caches can be used.
+private struct PosterImagePrefetchView<Data: Collection>: View where Data.Element: Poster {
+
+    @Environment(\.self)
+    private var environment
+
+    let elements: Data
+    let displayType: PosterDisplayType
+    let size: PosterDisplayType.Size
+
+    var body: some View {
+        // Resolved during view updates, same as `PosterImage`
+        let urls: [URL] = elements.compactMap { (element: Data.Element) -> URL? in
+            let sources = element.imageSources(
+                for: displayType,
+                size: size,
+                environment: element.resolveEnvironment(environment)
+            )
+
+            return sources.first(where: { $0.url != nil })?.url
+        }
+
+        Color.clear
+            .accessibilityHidden(true)
+            .onAppear {
+                ImagePrefetcher.Swiftfin.posters.startPrefetching(with: urls)
+            }
+            .onChange(of: urls) { _, newURLs in
+                ImagePrefetcher.Swiftfin.posters.startPrefetching(with: newURLs)
+            }
+            .onDisappear {
+                ImagePrefetcher.Swiftfin.posters.stopPrefetching(with: urls)
+            }
     }
 }

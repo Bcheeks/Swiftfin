@@ -93,7 +93,9 @@ final class ContentGroupViewModel<Provider: ContentGroupProvider>: ViewModel {
 
     @Function(\Action.Cases.refresh)
     private func _refresh() async throws {
-        if !StateTask.isBackground {
+        let isBackground = StateTask.isBackground
+
+        if !isBackground {
             needsGroupRebuild = true
         }
 
@@ -105,7 +107,7 @@ final class ContentGroupViewModel<Provider: ContentGroupProvider>: ViewModel {
 
         do {
             if rebuildGroups {
-                try await fullRefresh()
+                try await fullRefresh(isBackground: isBackground)
             } else {
                 await refreshViewModels(in: candidateGroups, inBackground: true)
                 try Task.checkCancellation()
@@ -160,12 +162,68 @@ final class ContentGroupViewModel<Provider: ContentGroupProvider>: ViewModel {
         }
     }
 
-    private func fullRefresh() async throws {
+    /// Refreshes the view models of new groups, publishing groups as they finish loading.
+    ///
+    /// Groups are only published in order, up to the first group that hasn't finished,
+    /// so finished groups are never shifted by a slower group above them.
+    private func refreshViewModelsProgressively(in newGroups: [any ContentGroup]) async {
+        // Only `ViewModel` instances can be tracked, others are treated as finished
+        let groupObjectIDs: [ObjectIdentifier?] = newGroups.map { group in
+            (group.viewModel as? ViewModel).map { ObjectIdentifier($0) }
+        }
+        var finishedObjectIDs = Set<ObjectIdentifier>()
+
+        await withTaskGroup(of: ObjectIdentifier?.self) { group in
+            for viewModel in uniqueViewModels(in: newGroups) {
+                let objectID = (viewModel as? ViewModel).map { ObjectIdentifier($0) }
+
+                group.addTask {
+                    await viewModel.refresh()
+                    return objectID
+                }
+            }
+
+            for await objectID in group {
+                if let objectID {
+                    finishedObjectIDs.insert(objectID)
+                }
+
+                guard !Task.isCancelled else { continue }
+
+                let finishedCount = groupObjectIDs.prefix { groupObjectID in
+                    groupObjectID.map { finishedObjectIDs.contains($0) } ?? true
+                }
+                .count
+
+                let resolved: [any ContentGroup] = Array(newGroups.prefix(finishedCount))
+                    .filter(\._shouldBeResolved)
+
+                if groups.map(\.id) != resolved.map(\.id) {
+                    groups = resolved
+                }
+            }
+        }
+    }
+
+    private func fullRefresh(isBackground: Bool) async throws {
         let newGroups = try await provider.makeGroups(environment: provider.environment)
         try Task.checkCancellation()
 
-        await refreshViewModels(in: newGroups, inBackground: false)
-        try Task.checkCancellation()
+        // Only reveal groups progressively on the first foreground load,
+        // otherwise keep presenting the current groups until all are ready.
+        let isProgressive = !isBackground && !hasLoadedGroups && groups.isEmpty
+
+        if isProgressive {
+            await refreshViewModelsProgressively(in: newGroups)
+
+            if Task.isCancelled {
+                groups = []
+                throw CancellationError()
+            }
+        } else {
+            await refreshViewModels(in: newGroups, inBackground: false)
+            try Task.checkCancellation()
+        }
 
         candidateGroups = newGroups
         observeGroups()

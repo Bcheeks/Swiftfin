@@ -50,6 +50,7 @@ struct SearchContentGroupProvider: ContentGroupProvider {
         .makeGroups(environment: .init(filters: environment.filters))
 
         PosterGroup(
+            id: "search-people",
             library: PeopleLibrary(
                 environment: .init(query: environment.filters.query)
             )

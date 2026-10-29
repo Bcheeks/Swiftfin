@@ -71,7 +71,7 @@ extension SeriesEpisodeContentGroup {
             guard let seasonID, seasonID != selection else { return }
 
             do {
-                try await Task.sleep(for: .milliseconds(350))
+                try await Task.sleep(for: .milliseconds(100))
             } catch {
                 return
             }

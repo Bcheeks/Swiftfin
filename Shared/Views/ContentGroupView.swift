@@ -83,7 +83,8 @@ struct ContentGroupView<Provider: ContentGroupProvider>: View {
     var body: some View {
         ZStack {
             switch viewModel.state {
-            case .content:
+            // Present loaded groups while remaining groups load
+            case .content, .refreshing where viewModel.groups.isNotEmpty:
                 if viewModel.groups.isEmpty {
                     ContentUnavailableView(
                         L10n.noResults.localizedCapitalized,
