@@ -678,13 +678,17 @@ extension EPGCollectionView {
             renderState?.sections[safe: indexPath.section]?.items[safe: indexPath.item]?.frame
         }
 
-        /// Airing programs anchor at the current time, others at their start.
+        /// Airing programs anchor at the current time, others at their middle.
+        ///
+        /// The middle matches what UIKit's focus engine aims for when moving up/down,
+        /// so most moves need no redirect (each redirect cancels the move and refocuses,
+        /// which made moving around the guide feel laggy).
         private func defaultFocusAnchor(for frame: CGRect) -> CGFloat {
             if let nowOffset = renderState?.nowOffset, frame.minX <= nowOffset, nowOffset < frame.maxX {
                 return nowOffset
             }
 
-            return frame.minX
+            return frame.midX
         }
 
         /// The item in `section` that contains `x`, or the nearest one when `x` falls in a gap.

@@ -15,8 +15,11 @@ struct EPGSupplement: MediaPlayerSupplement {
     let id: String = "EPG"
     let presentationStyle: MediaPlayerSupplementPresentationStyle = .expanded
 
+    /// Holds the guide data for the playback session (see `LiveTVChannelController.guideViewModel`).
+    let controller: LiveTVChannelController
+
     var videoPlayerBody: some PlatformView {
-        GuideOverlay()
+        GuideOverlay(controller: controller)
     }
 }
 
@@ -32,13 +35,19 @@ extension EPGSupplement {
         @EnvironmentObject
         private var manager: MediaPlayerManager
 
-        @State
-        private var lastSuccessfulRefresh = Date.distantPast
+        @ObservedObject
+        private var viewModel: EPGViewModel
 
-        @StateObject
-        private var viewModel = EPGViewModel()
+        private let controller: LiveTVChannelController
 
-        private let refreshInterval: TimeInterval = 3 * 60
+        // Programs only change at the edges of the time window, which the view model
+        // already rolls forward on its own; a periodic full reload just shows a spinner.
+        private let refreshInterval: TimeInterval = 15 * 60
+
+        init(controller: LiveTVChannelController) {
+            self.controller = controller
+            self.viewModel = controller.guideViewModel
+        }
 
         @ViewBuilder
         private var content: some View {
@@ -54,12 +63,15 @@ extension EPGSupplement {
                     .padding(.leading, safeAreaInsets.leading)
             }
             .onFirstAppear {
+                // Usually already preloaded by `LiveTVChannelController`
+                guard viewModel.state == .initial else { return }
+
                 viewModel.refresh(startDate: nil)
             }
             .onChange(of: viewModel.state) { _, state in
                 guard state == .content else { return }
 
-                lastSuccessfulRefresh = .now
+                controller.guideLastRefresh = .now
             }
             .onChange(of: viewState.selectedSupplementID) { _, id in
                 guard id == "EPG",
@@ -68,7 +80,7 @@ extension EPGSupplement {
                       !viewModel.background.is(.gettingNextPage)
                 else { return }
 
-                let hasRecentGuide = Date.now.timeIntervalSince(lastSuccessfulRefresh) < refreshInterval
+                let hasRecentGuide = Date.now.timeIntervalSince(controller.guideLastRefresh) < refreshInterval
                 let hasError = viewModel.state == .error
 
                 guard hasError || !hasRecentGuide else { return }

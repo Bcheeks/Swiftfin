@@ -42,6 +42,12 @@ final class LiveTVChannelController: ViewModel {
     @Published
     private(set) var banner: Banner?
 
+    /// Fork: the in-player guide's data lives for the whole playback session, so the
+    /// Guide tab opens instantly instead of reloading every time the panel is shown.
+    let guideViewModel = EPGViewModel()
+    var guideLastRefresh: Date = .distantPast
+    private var guidePreloadTask: Task<Void, Never>?
+
     private var playbackItemCancellable: AnyCancellable?
 
     private var channelsTask: Task<[BaseItemDto], Never>?
@@ -72,6 +78,8 @@ final class LiveTVChannelController: ViewModel {
         // The guide opens on the last watched channel
         Defaults[.Experimental.lastWatchedLiveTVChannelID] = channelID
 
+        preloadGuideIfNeeded()
+
         if let currentChannel {
             previousChannel = currentChannel
         }
@@ -83,6 +91,28 @@ final class LiveTVChannelController: ViewModel {
         pendingIndex = nil
 
         showBanner(for: channel)
+    }
+
+    // MARK: - Guide Preload
+
+    /// Loads the in-player guide a few seconds after the first channel starts,
+    /// so it doesn't compete with the stream starting up.
+    private func preloadGuideIfNeeded() {
+        guard Defaults[.Experimental.videoPlayerEPG],
+              guidePreloadTask == nil,
+              guideViewModel.state == .initial
+        else { return }
+
+        guidePreloadTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, let self, self.guideViewModel.state == .initial else { return }
+
+            await self.guideViewModel.refresh(startDate: nil)
+
+            if self.guideViewModel.state == .content {
+                self.guideLastRefresh = .now
+            }
+        }
     }
 
     // MARK: - Channel Up / Down

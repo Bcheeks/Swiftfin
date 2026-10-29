@@ -215,7 +215,7 @@ final class MediaPlayerManager: ViewModel {
         }
 
         if item.isLiveStream, Defaults[.Experimental.videoPlayerEPG] {
-            newSupplements.append(EPGSupplement())
+            newSupplements.append(EPGSupplement(controller: liveTVChannels))
         }
 
         self.supplements = newSupplements
