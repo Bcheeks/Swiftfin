@@ -55,6 +55,12 @@ extension VideoPlayer.PlaybackControls.Toolbar {
                 filteredButtons.removeAll { $0 == .audioOffset || $0 == .subtitleOffset }
             }
 
+            // The button renders nothing without a PiP-capable player, which can leave
+            // the ••• menu empty (e.g. Live TV with no stream info), so it does nothing.
+            if !(manager.proxy is any MediaPlayerPictureInPictureCapable) {
+                filteredButtons.removeAll { $0 == .pictureInPicture }
+            }
+
             if manager.queue == nil {
                 filteredButtons.removeAll { $0 == .autoPlay }
                 filteredButtons.removeAll { $0 == .playNextItem }

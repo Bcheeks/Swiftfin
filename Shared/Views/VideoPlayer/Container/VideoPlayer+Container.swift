@@ -897,7 +897,9 @@ extension VideoPlayer {
             lastTouchPokeTime = now
 
             if manager.item.isLiveStream {
-                guard viewState.presentation == .hidden else {
+                guard viewState.presentation == .hidden,
+                      Defaults[.Experimental.liveTVRemoteChannelSwitching]
+                else {
                     viewState.showControls()
                     return
                 }
@@ -938,8 +940,16 @@ extension VideoPlayer {
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
             for press in presses {
                 switch press.type {
-                case .playPause, .select, .menu:
+                case .playPause, .menu:
                     continue
+
+                case .select:
+                    // Toolbar controls like the ••• menu open on press-down, so they need the
+                    // began event too, not only the ended one forwarded in `handleSelectEnded`.
+                    if shouldForwardSelectToFocusedControl {
+                        forwardPressesBegan([press], event: event)
+                    }
+
                 default:
                     let defaultAction: () -> Void = { [weak self] in
                         guard let self else { return }
@@ -1050,6 +1060,17 @@ extension VideoPlayer {
             }
 
             return true
+        }
+
+        /// Mirrors the cases where `handleSelectEnded` forwards the press to the focused control.
+        private var shouldForwardSelectToFocusedControl: Bool {
+            if viewState.isOverlayActionFocused {
+                return true
+            }
+
+            guard viewState.presentation != .hidden else { return false }
+
+            return !viewState.isScrubbing && !viewState.isProgressBarFocused
         }
 
         private func handleSelectEnded(_ press: UIPress, event: UIPressesEvent?) {

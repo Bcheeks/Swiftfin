@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Defaults
 import SwiftUI
 
 extension VideoPlayer.PlaybackControls {
@@ -20,6 +21,7 @@ extension VideoPlayer.PlaybackControls {
 
         // Channel up/down while watching live TV with the overlay dismissed
         if press.type == .upArrow || press.type == .downArrow,
+           Defaults[.Experimental.liveTVRemoteChannelSwitching],
            manager.item.isLiveStream,
            viewState.presentation == .hidden,
            !viewState.isPresentingOverlayActions,

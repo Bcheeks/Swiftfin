@@ -40,20 +40,21 @@ struct EPGView: View {
         }
     }
 
-    /// Channels and currently airing programs tune immediately.
-    /// Programs that haven't started yet open their details.
+    /// Selecting anything in the guide tunes its channel, joining whatever is airing now,
+    /// including programs that haven't started yet.
     private func select(_ item: BaseItemDto) {
-        guard item.isTunable else {
-            router.route(to: .item(item: item))
-            return
+        let channel: BaseItemDto? = if item.type == .liveTvChannel || item.type == .tvChannel {
+            item
+        } else {
+            item.channelID.flatMap { channelID in
+                viewModel.channels.first { $0.itemID == channelID }?.value
+            }
         }
 
-        let channel = item.channelID
-            .flatMap { channelID in
-                viewModel.channels.first { $0.itemID == channelID }?.value
-            } ?? item
+        // Fall back to the program itself if it's airing and its channel isn't loaded
+        let playable = channel ?? (item.isTunable ? item : nil)
 
-        guard let provider = channel.getPlaybackItemProvider(userSession: viewModel.userSession) else {
+        guard let provider = playable?.getPlaybackItemProvider(userSession: viewModel.userSession) else {
             router.route(to: .item(item: item))
             return
         }

@@ -21,6 +21,12 @@ struct ExperimentalSettingsView: View {
     private var isServerConnectionAutoSwitchEnabled
     @Default(.Experimental.videoPlayerEPG)
     private var isVideoPlayerEPGEnabled
+    @Default(.Experimental.liveTVRemoteChannelSwitching)
+    private var isLiveTVRemoteChannelSwitchingEnabled
+    @Default(.Experimental.liveTVDirectStream)
+    private var isLiveTVDirectStreamEnabled
+    @Default(.Experimental.liveTVDirectStreamBaseURL)
+    private var liveTVDirectStreamBaseURL
 
     @Injected(\.userSessionManager)
     private var userSessionManager: UserSessionManager
@@ -31,6 +37,19 @@ struct ExperimentalSettingsView: View {
             Toggle("MPV engine", isOn: $isMPVEnabled)
 
             Toggle("Live TV EPG", isOn: $isVideoPlayerEPGEnabled)
+
+            #if os(tvOS)
+            Toggle("Live TV channel up/down", isOn: $isLiveTVRemoteChannelSwitchingEnabled)
+            #endif
+
+            Toggle("Play Live TV directly from ErsatzTV", isOn: $isLiveTVDirectStreamEnabled)
+
+            if isLiveTVDirectStreamEnabled {
+                TextField("ErsatzTV URL", text: $liveTVDirectStreamBaseURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
 
             #if os(iOS)
             Toggle("Auto switch connection", isOn: $isServerConnectionAutoSwitchEnabled)

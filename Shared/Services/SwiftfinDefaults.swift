@@ -293,12 +293,14 @@ extension Defaults.Keys {
         static var supplements: Key<[VideoPlayerSupplement]> {
             UserKey(
                 "videoPlayerSupplements",
-                default: VideoPlayerSupplement.supportedCases
+                // Fork: also show the Session tab (play method, codecs, audio track info)
+                default: VideoPlayerSupplement.supportedCases + [.playbackInformation]
             )
         }
 
         static var videoPlayerType: Key<VideoPlayerType> {
-            UserKey("videoPlayerType", default: .vlc)
+            // Fork: MPV by default; VLC was silent on some files (e.g. King Richard)
+            UserKey("videoPlayerType", default: .mpv)
         }
 
         enum Gesture {
@@ -403,7 +405,7 @@ extension Defaults.Keys {
     enum Experimental {
 
         static var mpvPlayer: Key<Bool> {
-            UserKey("experimentalMPVPlayer", default: false)
+            UserKey("experimentalMPVPlayer", default: true)
         }
 
         // TODO: don't use L10n key as key, just used to not
@@ -418,6 +420,23 @@ extension Defaults.Keys {
 
         static var videoPlayerEPG: Key<Bool> {
             UserKey("experimentalVideoPlayerEPG", default: true)
+        }
+
+        /// Fork: play Live TV channels straight from ErsatzTV, skipping Jellyfin's
+        /// live stream open, 3 s probe and stream copy.
+        static var liveTVDirectStream: Key<Bool> {
+            UserKey("experimentalLiveTVDirectStream", default: false)
+        }
+
+        /// ErsatzTV base URL. Channels play from `<base>/iptv/channel/<channel number>.ts`.
+        static var liveTVDirectStreamBaseURL: Key<String> {
+            UserKey("experimentalLiveTVDirectStreamBaseURL", default: "http://192.168.1.60:8409")
+        }
+
+        /// Up/down on the remote changes channel while watching Live TV.
+        /// Off by default so swiping down opens the info panel as usual.
+        static var liveTVRemoteChannelSwitching: Key<Bool> {
+            UserKey("experimentalLiveTVRemoteChannelSwitching", default: false)
         }
     }
 

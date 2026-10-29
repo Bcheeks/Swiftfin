@@ -49,6 +49,32 @@ extension MediaPlayerItem {
             modifyItem(&item)
         }
 
+        // Fork: ErsatzTV channels can play straight from ErsatzTV
+        if let directStreamURL = directLiveTVStreamURL(for: item),
+           let channelMediaSource = _initialMediaSource ?? item.mediaSources?.first
+        {
+            logger.info("Playing Live TV channel directly from \(directStreamURL.absoluteString)")
+
+            let deviceProfile = DeviceProfile.build(
+                for: videoPlayerType,
+                compatibilityMode: compatibilityMode,
+                maxBitrate: requestedBitrate == .auto ? Int(Int32.max) : requestedBitrate.rawValue
+            )
+
+            return .init(
+                baseItem: item,
+                mediaSource: channelMediaSource,
+                playSessionID: UUID().uuidString,
+                url: directStreamURL,
+                requestedBitrate: requestedBitrate,
+                deviceProfile: deviceProfile,
+                initialAudioStreamIndex: audioStreamIndex,
+                initialSubtitleStreamIndex: subtitleStreamIndex,
+                previewImageProvider: nil,
+                thumbnailProvider: { await storedItem.value?.getNowPlayingImage() }
+            )
+        }
+
         guard let initialMediaSource = {
             if let _initialMediaSource {
                 return _initialMediaSource
@@ -183,6 +209,27 @@ extension MediaPlayerItem {
             previewImageProvider: previewImageProvider,
             thumbnailProvider: { await storedItem.value?.getNowPlayingImage() }
         )
+    }
+
+    /// `<ErsatzTV base>/iptv/channel/<channel number>.ts` when direct Live TV is enabled
+    /// and the item is a channel with a number. ErsatzTV's M3U uses the same numbers.
+    private static func directLiveTVStreamURL(for item: BaseItemDto) -> URL? {
+        guard Defaults[.Experimental.liveTVDirectStream],
+              item.isLiveStream,
+              item.type == .tvChannel || item.type == .liveTvChannel,
+              let channelNumber = item.channelNumber?.trimmingCharacters(in: .whitespaces),
+              channelNumber.isNotEmpty,
+              let baseURL = URL(
+                  string: Defaults[.Experimental.liveTVDirectStreamBaseURL]
+                      .trimmingCharacters(in: .whitespacesAndNewlines)
+              ),
+              baseURL.scheme != nil
+        else { return nil }
+
+        return baseURL
+            .appendingPathComponent("iptv")
+            .appendingPathComponent("channel")
+            .appendingPathComponent("\(channelNumber).ts")
     }
 
     // TODO: audio type stream

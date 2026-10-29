@@ -135,20 +135,13 @@ enum VideoPlayerActionButton: String, CaseIterable, Displayable, Equatable, Iden
     }
     #endif
 
+    // Fork: no aspect-fill button and no ••• menu in the player toolbar.
+    // Previous/next and auto play still appear when there's a queue (TV episodes).
     static let defaultBarActionButtons: [VideoPlayerActionButton] = [
-        .aspectFill,
         .autoPlay,
         .playPreviousItem,
         .playNextItem,
     ]
 
-    static let defaultMenuActionButtons: [VideoPlayerActionButton] = [
-        .audio,
-        .audioOffset,
-        .subtitles,
-        .subtitleOffset,
-        .playbackSpeed,
-        .pictureInPicture,
-        .playbackSettings,
-    ]
+    static let defaultMenuActionButtons: [VideoPlayerActionButton] = []
 }
