@@ -138,6 +138,9 @@ extension EPGCollectionView {
         private var lastFocusedIndexPath: IndexPath?
         private var pendingFocusIndexPath: IndexPath?
         private var redirectFocusIndexPath: IndexPath?
+        /// Set when a redirect failed to move focus, so the next move uses UIKit's default
+        /// instead of being cancelled again. Prevents focus from getting stuck.
+        private var bypassNextRedirect = false
         private var hasReceivedFocus = false
         private var didPerformInitialFocus = false
         private var isInitialFocusScheduled = false
@@ -466,6 +469,11 @@ extension EPGCollectionView {
                   let nextIndexPath = context.nextFocusedIndexPath
             else { return true }
 
+            if bypassNextRedirect {
+                bypassNextRedirect = false
+                return true
+            }
+
             let anchor: CGFloat
 
             if let previousIndexPath = context.previouslyFocusedIndexPath {
@@ -483,9 +491,11 @@ extension EPGCollectionView {
                 anchor = target
             }
 
+            // Only redirect to a cell that's actually on screen; focus can't move to one that isn't.
             guard let targetIndexPath = indexPath(inSection: nextIndexPath.section, at: anchor),
                   targetIndexPath != nextIndexPath,
-                  collectionView.cellForItem(at: targetIndexPath) != nil
+                  let targetCell = collectionView.cellForItem(at: targetIndexPath),
+                  isMostlyVisible(targetCell, in: collectionView)
             else { return true }
 
             redirectFocusIndexPath = targetIndexPath
@@ -499,9 +509,29 @@ extension EPGCollectionView {
                 guard let collectionView, let target else { return }
 
                 self.requestFocus(target, in: collectionView)
+
+                // If focus didn't land on the target, let the next press move normally.
+                if !self.isFocused(at: target, in: collectionView) {
+                    self.bypassNextRedirect = true
+                }
             }
 
             return false
+        }
+
+        private func isMostlyVisible(_ cell: UICollectionViewCell, in collectionView: UICollectionView) -> Bool {
+            let visible = collectionView.bounds.intersection(cell.frame)
+            guard !visible.isNull else { return false }
+
+            return visible.width >= min(cell.frame.width, 40) && visible.height >= cell.frame.height * 0.5
+        }
+
+        private func isFocused(at indexPath: IndexPath, in collectionView: UICollectionView) -> Bool {
+            guard let cell = collectionView.cellForItem(at: indexPath),
+                  let focusedView = UIFocusSystem.focusSystem(for: collectionView)?.focusedItem as? UIView
+            else { return false }
+
+            return focusedView == cell || focusedView.isDescendant(of: cell)
         }
 
         func collectionView(
