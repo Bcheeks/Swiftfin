@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Defaults
 import JellyfinAPI
 import SwiftUI
 
@@ -16,6 +17,9 @@ struct EPGView: View {
 
     @StateObject
     private var viewModel = EPGViewModel()
+
+    @Default(.Experimental.lastWatchedLiveTVChannelID)
+    private var lastWatchedChannelID
 
     private let autoFocusesOnAppear: Bool
 
@@ -34,6 +38,7 @@ struct EPGView: View {
 
             EPGContentView(
                 viewModel: viewModel,
+                selectedChannelID: lastWatchedChannelID.isEmpty ? nil : lastWatchedChannelID,
                 autoFocusesOnAppear: autoFocusesOnAppear,
                 action: select
             )

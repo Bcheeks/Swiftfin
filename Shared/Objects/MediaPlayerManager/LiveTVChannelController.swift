@@ -7,6 +7,7 @@
 //
 
 import Combine
+import Defaults
 import Foundation
 import JellyfinAPI
 
@@ -67,6 +68,9 @@ final class LiveTVChannelController: ViewModel {
 
         // Rebuilds (audio track, bitrate) keep the same channel.
         guard channelID != currentChannel?.id else { return }
+
+        // The guide opens on the last watched channel
+        Defaults[.Experimental.lastWatchedLiveTVChannelID] = channelID
 
         if let currentChannel {
             previousChannel = currentChannel

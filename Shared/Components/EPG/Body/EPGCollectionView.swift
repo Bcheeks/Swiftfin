@@ -144,6 +144,8 @@ extension EPGCollectionView {
         private var hasReceivedFocus = false
         private var didPerformInitialFocus = false
         private var isInitialFocusScheduled = false
+        /// The selected channel the initial scroll/focus was last performed for.
+        private var appliedSelectedChannelID: String?
         #endif
 
         func configure(_ collectionView: UICollectionView) {
@@ -187,6 +189,16 @@ extension EPGCollectionView {
 
         func update(_ collectionView: UICollectionView) {
             guard let representable else { return }
+
+            #if os(tvOS)
+            // A different channel was watched since the guide last positioned itself
+            // (e.g. the Live TV tab stays alive): position on it again.
+            if representable.selectedChannelID != appliedSelectedChannelID {
+                appliedSelectedChannelID = representable.selectedChannelID
+                didPerformInitialFocus = false
+                hasReceivedFocus = false
+            }
+            #endif
 
             let viewModel = representable.viewModel
             let layout = representable.layout
@@ -608,12 +620,19 @@ extension EPGCollectionView {
         /// Returns whether there was a target to focus.
         private func performInitialFocusIfNeeded() -> Bool {
             guard !didPerformInitialFocus,
-                  representable?.autoFocusesOnAppear != false,
                   let collectionView,
                   collectionView.window != nil,
                   let target = initialFocusIndexPath(),
                   let frame = renderFrame(at: target)
             else { return false }
+
+            // Focus may still be in the tab sidebar: only scroll the selected channel into view.
+            // Moving into the grid then lands on it via `indexPathForPreferredFocusedView`.
+            guard representable?.autoFocusesOnAppear != false else {
+                focusAnchor = defaultFocusAnchor(for: frame)
+                scrollToRowIfNeeded(target.section, in: collectionView)
+                return true
+            }
             guard !isFocused(within: collectionView) else { return true }
 
             focusAnchor = defaultFocusAnchor(for: frame)

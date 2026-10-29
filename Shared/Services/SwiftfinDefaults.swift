@@ -433,6 +433,11 @@ extension Defaults.Keys {
             UserKey("experimentalLiveTVDirectStreamBaseURL", default: "http://192.168.1.60:8409")
         }
 
+        /// Fork: last Live TV channel played, so the guide opens on it.
+        static var lastWatchedLiveTVChannelID: Key<String> {
+            UserKey("lastWatchedLiveTVChannelID", default: "")
+        }
+
         /// Up/down on the remote changes channel while watching Live TV.
         /// Off by default so swiping down opens the info panel as usual.
         static var liveTVRemoteChannelSwitching: Key<Bool> {

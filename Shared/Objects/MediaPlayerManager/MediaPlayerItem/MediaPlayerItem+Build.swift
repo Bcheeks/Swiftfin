@@ -211,8 +211,12 @@ extension MediaPlayerItem {
         )
     }
 
-    /// `<ErsatzTV base>/iptv/channel/<channel number>.ts` when direct Live TV is enabled
-    /// and the item is a channel with a number. ErsatzTV's M3U uses the same numbers.
+    /// `<ErsatzTV base>/iptv/channel/<channel number>.m3u8?mode=segmenter` when direct Live TV
+    /// is enabled and the item is a channel with a number. ErsatzTV's M3U uses the same numbers.
+    ///
+    /// HLS segmenter rather than MPEG-TS: the `.ts` stream is paced at exactly real time, so the
+    /// player can never build a buffer and stutters on Wi-Fi. Segments are produced ahead
+    /// (work-ahead), so the player can download several immediately and build a cushion.
     private static func directLiveTVStreamURL(for item: BaseItemDto) -> URL? {
         guard Defaults[.Experimental.liveTVDirectStream],
               item.isLiveStream,
@@ -226,10 +230,16 @@ extension MediaPlayerItem {
               baseURL.scheme != nil
         else { return nil }
 
-        return baseURL
+        let channelURL = baseURL
             .appendingPathComponent("iptv")
             .appendingPathComponent("channel")
-            .appendingPathComponent("\(channelNumber).ts")
+            .appendingPathComponent("\(channelNumber).m3u8")
+
+        guard var components = URLComponents(url: channelURL, resolvingAgainstBaseURL: false) else { return nil }
+
+        components.queryItems = [URLQueryItem(name: "mode", value: "segmenter")]
+
+        return components.url
     }
 
     // TODO: audio type stream

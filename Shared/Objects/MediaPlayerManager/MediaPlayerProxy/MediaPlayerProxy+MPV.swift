@@ -148,6 +148,10 @@ extension MPVMediaPlayerProxy {
             proxy.isBuffering.value = true
             proxy.videoSize.value = .zero
 
+            // Fork: Live TV buffers 2 s before starting and after a stall (MPVUI default is 1 s),
+            // so a slow ErsatzTV segment causes one short pause instead of repeated freezes.
+            player.command("set", arguments: ["cache-pause-wait", item.baseItem.isLiveStream ? "2" : "1"])
+
             let start = max(.zero, (item.baseItem.startSeconds ?? .zero) - .seconds(Defaults[.VideoPlayer.resumeOffset]))
             player.load(item.url, autoPlay: manager.playbackRequestStatus == .playing, startTime: item.baseItem.isLiveStream ? nil : start)
             proxy.setRate(manager.rate)
